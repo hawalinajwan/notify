@@ -1,9 +1,7 @@
 name: Cek Notifikasi PENS → Discord
 
 on:
-  schedule:
-    - cron: "*/5 * * * *"
-  workflow_dispatch:
+  workflow_dispatch:   # Hanya trigger dari luar (cron-job.org)
 
 jobs:
   kirim-notifikasi:
