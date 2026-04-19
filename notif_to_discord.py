@@ -105,7 +105,10 @@ def send_to_discord(notif: dict):
         "timestamp": datetime.utcnow().isoformat(),
     }
 
+    # @everyone hanya untuk notif ABSENSI
     payload = {"username": "PENS Notifikasi", "embeds": [embed]}
+    if kode == "ABSENSI":
+        payload["content"] = "@everyone 🚨 Segera buka absen!"
 
     try:
         r = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
