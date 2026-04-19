@@ -6,16 +6,14 @@ import re
 from datetime import datetime, date, timedelta
 
 # ===================== KONFIGURASI =====================
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1495382294234660934/PX_Lxy8-YPXFBaKQwG611rCnkHmA1PmBVQdQReXpHT5HamYdtd00_QdOKenG1Txgnm6m"
+# Semua nilai sensitif diambil dari GitHub Secrets
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+COOKIE              = os.environ.get("ETHOL_COOKIE", "")
+TOKEN               = os.environ.get("ETHOL_TOKEN", "")
+GIST_ID             = os.environ.get("GIST_ID", "")
+GIST_TOKEN          = os.environ.get("GIST_TOKEN", "")
 
-COOKIE = os.environ.get("ETHOL_COOKIE", "")
-TOKEN  = os.environ.get("ETHOL_TOKEN", "")
-
-# Gist untuk kalender .ics
-GIST_ID       = "da7af98c4e4ecd5f5963ef70b3d284cb"
-GIST_TOKEN    = os.environ.get("GIST_TOKEN", "")
 GIST_FILENAME = "deadline.ics"
-
 API_URL       = "https://ethol.pens.ac.id/api/notifikasi/mahasiswa?filterNotif=SEMUA"
 SENT_IDS_FILE = "sent_ids.json"
 BASE_URL      = "https://ethol.pens.ac.id"
@@ -122,7 +120,6 @@ def send_to_discord(notif: dict):
 # ─── Kalender via GitHub Gist ─────────────────────────────────────────────────
 
 def fetch_gist_ics() -> str:
-    """Ambil isi file .ics dari Gist."""
     try:
         r = requests.get(
             f"https://api.github.com/gists/{GIST_ID}",
@@ -137,7 +134,6 @@ def fetch_gist_ics() -> str:
 
 
 def push_gist_ics(content: str):
-    """Upload isi .ics yang sudah diupdate ke Gist."""
     try:
         r = requests.patch(
             f"https://api.github.com/gists/{GIST_ID}",
@@ -152,28 +148,19 @@ def push_gist_ics(content: str):
 
 
 def extract_deadline_date(keterangan: str) -> date:
-    """Ekstrak tanggal deadline dari teks keterangan."""
-    # Pola: "X hari lagi"
     m = re.search(r"(\d+)\s+hari\s+lagi", keterangan, re.IGNORECASE)
     if m:
         return date.today() + timedelta(days=int(m.group(1)))
-
-    # Pola YYYY-MM-DD
     m = re.search(r"(\d{4})-(\d{2})-(\d{2})", keterangan)
     if m:
         return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-
-    # Pola DD-MM-YYYY
     m = re.search(r"(\d{2})-(\d{2})-(\d{4})", keterangan)
     if m:
         return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-
-    # Fallback: besok
     return date.today() + timedelta(days=1)
 
 
 def parse_events_from_ics(ics_content: str) -> dict:
-    """Baca events dari string .ics → {uid: block}"""
     events = {}
     blocks = re.findall(r"BEGIN:VEVENT.*?END:VEVENT", ics_content, re.DOTALL)
     for block in blocks:
@@ -184,7 +171,6 @@ def parse_events_from_ics(ics_content: str) -> dict:
 
 
 def build_ics(events: dict) -> str:
-    """Bangun string .ics dari dict events."""
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -202,30 +188,24 @@ def build_ics(events: dict) -> str:
     return "\r\n".join(lines)
 
 
-def add_to_calendar(notif: dict) -> bool:
-    """Tambah event deadline ke Gist. Return True jika ada perubahan."""
-    keterangan = notif.get("keterangan", "")
-    notif_id   = make_id(notif)
-    url_web    = notif.get("urlWeb", "")
-    full_url   = f"{BASE_URL}{url_web}" if url_web else BASE_URL
-    uid        = f"{notif_id}@ethol.pens.ac.id"
-
+def add_to_calendar(notif: dict):
+    keterangan   = notif.get("keterangan", "")
+    notif_id     = make_id(notif)
+    url_web      = notif.get("urlWeb", "")
+    full_url     = f"{BASE_URL}{url_web}" if url_web else BASE_URL
+    uid          = f"{notif_id}@ethol.pens.ac.id"
     deadline     = extract_deadline_date(keterangan)
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     summary      = keterangan.replace(",", "\\,").replace(";", "\\;")
 
-    # Fetch isi Gist sekarang
     current_ics = fetch_gist_ics()
-    if current_ics:
-        existing = parse_events_from_ics(current_ics)
-    else:
-        existing = {}
+    existing    = parse_events_from_ics(current_ics) if current_ics else {}
 
     if uid in existing:
         print(f"  ℹ️  Event sudah ada di kalender, skip.")
-        return False
+        return
 
     event_block = "\r\n".join([
         "BEGIN:VEVENT",
@@ -245,7 +225,6 @@ def add_to_calendar(notif: dict) -> bool:
     existing[uid] = event_block
     push_gist_ics(build_ics(existing))
     print(f"  📅 Kalender: deadline {deadline} — {keterangan[:60]}")
-    return True
 
 
 # ─── Main ─────────────────────────────────────────────────────────────────────
@@ -275,11 +254,8 @@ def main():
     new_count = 0
     for notif in new_notifs_sorted:
         send_to_discord(notif)
-
-        # Kalender hanya untuk TUGAS-BARU
         if notif.get("kodeNotifikasi") == "TUGAS-BARU":
             add_to_calendar(notif)
-
         sent_ids.add(make_id(notif))
         new_count += 1
 

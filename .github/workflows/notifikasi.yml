@@ -3,8 +3,6 @@ name: Cek Notifikasi PENS → Discord
 on:
   schedule:
     - cron: "*/5 * * * *"
-  push:
-    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -33,7 +31,9 @@ jobs:
 
       - name: Jalankan script
         env:
-          ETHOL_COOKIE: ${{ secrets.ETHOL_COOKIE }}
-          ETHOL_TOKEN:  ${{ secrets.ETHOL_TOKEN }}
-          GIST_TOKEN:   ${{ secrets.GIST_TOKEN }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ETHOL_COOKIE:        ${{ secrets.ETHOL_COOKIE }}
+          ETHOL_TOKEN:         ${{ secrets.ETHOL_TOKEN }}
+          GIST_ID:             ${{ secrets.GIST_ID }}
+          GIST_TOKEN:          ${{ secrets.GIST_TOKEN }}
         run: python notif_to_discord.py
