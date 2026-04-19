@@ -1,0 +1,39 @@
+name: Cek Notifikasi PENS → Discord
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # Jalankan setiap 30 menit
+  workflow_dispatch:          # Bisa dijalankan manual dari GitHub
+
+jobs:
+  kirim-notifikasi:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Ambil file sent_ids.json dari cache agar tidak double kirim
+      - name: Restore cache sent_ids
+        uses: actions/cache@v4
+        with:
+          path: sent_ids.json
+          key: sent-ids-${{ github.run_id }}
+          restore-keys: |
+            sent-ids-
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependency
+        run: pip install requests
+
+      - name: Jalankan script
+        env:
+          ETHOL_COOKIE: ${{ secrets.ETHOL_COOKIE }}
+          ETHOL_TOKEN:  ${{ secrets.ETHOL_TOKEN }}
+        run: python notif_to_discord.py
