@@ -180,15 +180,15 @@ def build_ics(events: dict) -> str:
         "PRODID:-//PENS Notifikasi//ID",
         "CALSCALE:GREGORIAN",
         "METHOD:PUBLISH",
-        "X-WR-CALNAME:📚 Deadline Tugas PENS",
-        "X-WR-TIMEZONE:Asia/Jakarta",
-        "REFRESH-INTERVAL;VALUE=DURATION:PT5M",
-        "X-PUBLISHED-TTL:PT5M",
+        "X-WR-CALNAME:Deadline Tugas PENS",
     ]
     for block in events.values():
-        lines.append(block)
+        # Pastikan setiap block pakai CRLF
+        block_lines = block.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        lines.extend(block_lines)
     lines.append("END:VCALENDAR")
-    return "\r\n".join(lines)
+    # Gabung dengan CRLF sesuai standar iCalendar (RFC 5545)
+    return "\r\n".join(lines) + "\r\n"
 
 
 def add_to_calendar(notif: dict):
@@ -201,7 +201,8 @@ def add_to_calendar(notif: dict):
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    summary      = keterangan.replace(",", "\\,").replace(";", "\\;")
+    # Hapus karakter yang bisa merusak format .ics
+    summary      = re.sub(r"[\r\n]", " ", keterangan)
 
     current_ics = fetch_gist_ics()
     existing    = parse_events_from_ics(current_ics) if current_ics else {}
@@ -210,22 +211,20 @@ def add_to_calendar(notif: dict):
         print(f"  ℹ️  Event sudah ada di kalender, skip.")
         return
 
-    event_block = "\r\n".join([
+    # Simpan sebagai list of lines, build_ics yang urus CRLF-nya
+    event_lines = [
         "BEGIN:VEVENT",
         f"UID:{uid}",
         f"DTSTAMP:{now_str}",
         f"DTSTART;VALUE=DATE:{date_str}",
         f"DTEND;VALUE=DATE:{date_end_str}",
-        f"SUMMARY:📝 {summary}",
+        f"SUMMARY:{summary}",
         f"DESCRIPTION:{summary}",
         f"URL:{full_url}",
-        "CATEGORIES:Deadline,Tugas",
         "STATUS:CONFIRMED",
-        "TRANSP:TRANSPARENT",
         "END:VEVENT",
-    ])
-
-    existing[uid] = event_block
+    ]
+    existing[uid] = "\n".join(event_lines)
     push_gist_ics(build_ics(existing))
     print(f"  📅 Kalender: deadline {deadline} — {keterangan[:60]}")
 
