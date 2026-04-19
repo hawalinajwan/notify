@@ -2,7 +2,7 @@ name: Cek Notifikasi PENS → Discord
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # Jalankan setiap 30 menit
+    - cron: "*/5 * * * *"    # Jalankan setiap 5 menit
   workflow_dispatch:          # Bisa dijalankan manual dari GitHub
 
 jobs:

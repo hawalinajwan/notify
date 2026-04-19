@@ -135,13 +135,18 @@ def main():
     print(f"Total notifikasi : {len(notifs)}")
     print(f"Sudah dikirim    : {len(sent_ids)}")
 
+    # Filter hanya yang belum dikirim
+    new_notifs = [n for n in notifs if make_id(n) not in sent_ids]
+
+    # Balik urutan: kirim yang terlama dulu agar di Discord urutan terbaru di bawah (paling atas = paling baru)
+    new_notifs_sorted = list(reversed(new_notifs))
+
     new_count = 0
-    for notif in notifs:
+    for notif in new_notifs_sorted:
         nid = make_id(notif)
-        if nid not in sent_ids:
-            send_to_discord(notif)
-            sent_ids.add(nid)
-            new_count += 1
+        send_to_discord(notif)
+        sent_ids.add(nid)
+        new_count += 1
 
     save_sent_ids(sent_ids)
     print(f"\nSelesai — {new_count} notifikasi baru dikirim ke Discord.")
