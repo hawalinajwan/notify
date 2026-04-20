@@ -158,31 +158,34 @@ BULAN_ID = {
     "september": 9, "oktober": 10, "november": 11, "desember": 12
 }
 
-def fetch_deadline_from_web(url_web: str) -> date | None:
-    """Fetch halaman detail tugas dan ambil tanggal deadline."""
+def fetch_deadline_from_api(url_web: str) -> tuple[date | None, str]:
+    """
+    Fetch deadline dari API detail tugas.
+    url_web contoh: /notifikasi/tugas/defbdbf7-337b-4e16-a288-cb62873f3129-28501
+    API endpoint  : /api/notifikasi/tugas/<id>
+    Return        : (date, deadline_indonesia string)
+    """
     if not url_web:
-        return None
+        return None, ""
     try:
-        full_url = f"{BASE_URL}{url_web}"
-        r = requests.get(full_url, headers=HEADERS, timeout=15)
+        # Ambil ID dari URL: bagian terakhir setelah /tugas/
+        tugas_id = url_web.rstrip("/").split("/")[-1]
+        api_url  = f"{BASE_URL}/api/notifikasi/tugas/{tugas_id}"
+        r = requests.get(api_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
-        html = r.text
+        data = r.json()
 
-        # Cari pola "Deadline : Hari, DD Bulan YYYY - HH:MM"
-        m = re.search(
-            r"Deadline\s*:\s*\w+,\s*(\d{1,2})\s+(\w+)\s+(\d{4})",
-            html, re.IGNORECASE
-        )
-        if m:
-            day   = int(m.group(1))
-            bulan = m.group(2).lower()
-            year  = int(m.group(3))
-            month = BULAN_ID.get(bulan)
-            if month:
-                return date(year, month, day)
+        # Response bisa list atau dict
+        item = data[0] if isinstance(data, list) else data
+        deadline_str     = item.get("deadline", "")           # "2026-04-20 16:20:00"
+        deadline_indo    = item.get("deadline_indonesia", "")  # "Senin, 20 April 2026 - 16:20"
+
+        if deadline_str:
+            d = datetime.strptime(deadline_str, "%Y-%m-%d %H:%M:%S").date()
+            return d, deadline_indo
     except Exception as e:
-        print(f"  ⚠️  Gagal fetch deadline dari web: {e}")
-    return None
+        print(f"  ⚠️  Gagal fetch deadline dari API: {e}")
+    return None, ""
 
 def extract_deadline_date(keterangan: str) -> date:
     """Fallback: ekstrak dari teks keterangan."""
@@ -232,9 +235,12 @@ def add_to_calendar(notif: dict):
     url_web      = notif.get("urlWeb", "")
     full_url     = f"{BASE_URL}{url_web}" if url_web else BASE_URL
     uid          = f"{notif_id}@ethol.pens.ac.id"
-    # Coba ambil deadline dari halaman detail dulu, fallback ke parsing teks
-    deadline = fetch_deadline_from_web(url_web) or extract_deadline_date(keterangan)
-    print(f"  📅 Deadline terdeteksi: {deadline}")
+    # Ambil deadline akurat dari API detail tugas
+    deadline, deadline_indo = fetch_deadline_from_api(url_web)
+    if not deadline:
+        deadline = extract_deadline_date(keterangan)
+        deadline_indo = deadline.strftime("%A, %d %B %Y")
+    print(f"  📅 Deadline terdeteksi: {deadline} ({deadline_indo})")
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -249,6 +255,8 @@ def add_to_calendar(notif: dict):
         return
 
     # Simpan sebagai list of lines, build_ics yang urus CRLF-nya
+    # Buat summary singkat: nama tugas saja (bukan keterangan panjang)
+    deadline_label = f"DL: {deadline_indo}" if deadline_indo else f"DL: {date_str}"
     event_lines = [
         "BEGIN:VEVENT",
         f"UID:{uid}",
@@ -256,7 +264,7 @@ def add_to_calendar(notif: dict):
         f"DTSTART;VALUE=DATE:{date_str}",
         f"DTEND;VALUE=DATE:{date_end_str}",
         f"SUMMARY:{summary}",
-        f"DESCRIPTION:{summary}",
+        f"DESCRIPTION:{deadline_label}\n{summary}",
         f"URL:{full_url}",
         "STATUS:CONFIRMED",
         "END:VEVENT",
