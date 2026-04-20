@@ -43,6 +43,7 @@ NOTIF_CONFIG = {
     "NILAI-KELUAR":    {"emoji": "🎯", "label": "Nilai Keluar",    "color": 0x2ECC71},
     "PENGUMUMAN":      {"emoji": "📢", "label": "Pengumuman",      "color": 0x9B59B6},
     "ABSENSI":         {"emoji": "🗓️", "label": "Absensi",         "color": 0xE67E22},
+    "PRESENSI":        {"emoji": "🗓️", "label": "Absensi",         "color": 0xE67E22},
     "JADWAL":          {"emoji": "📅", "label": "Jadwal",          "color": 0x1ABC9C},
 }
 DEFAULT_CONFIG = {"emoji": "🔔", "label": "Notifikasi", "color": 0x5865F2}
@@ -107,7 +108,7 @@ def send_to_discord(notif: dict):
 
     # @everyone hanya untuk notif ABSENSI
     payload = {"username": "PENS Notifikasi", "embeds": [embed]}
-    if kode == "ABSENSI":
+    if kode in ("ABSENSI", "PRESENSI"):
         payload["content"] = "@everyone 🚨 Segera buka absen!"
 
     try:
@@ -150,7 +151,41 @@ def push_gist_ics(content: str):
         print(f"  ❌ Gagal update Gist: {e}")
 
 
+# Mapping nama bulan Indonesia
+BULAN_ID = {
+    "januari": 1, "februari": 2, "maret": 3, "april": 4,
+    "mei": 5, "juni": 6, "juli": 7, "agustus": 8,
+    "september": 9, "oktober": 10, "november": 11, "desember": 12
+}
+
+def fetch_deadline_from_web(url_web: str) -> date | None:
+    """Fetch halaman detail tugas dan ambil tanggal deadline."""
+    if not url_web:
+        return None
+    try:
+        full_url = f"{BASE_URL}{url_web}"
+        r = requests.get(full_url, headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        html = r.text
+
+        # Cari pola "Deadline : Hari, DD Bulan YYYY - HH:MM"
+        m = re.search(
+            r"Deadline\s*:\s*\w+,\s*(\d{1,2})\s+(\w+)\s+(\d{4})",
+            html, re.IGNORECASE
+        )
+        if m:
+            day   = int(m.group(1))
+            bulan = m.group(2).lower()
+            year  = int(m.group(3))
+            month = BULAN_ID.get(bulan)
+            if month:
+                return date(year, month, day)
+    except Exception as e:
+        print(f"  ⚠️  Gagal fetch deadline dari web: {e}")
+    return None
+
 def extract_deadline_date(keterangan: str) -> date:
+    """Fallback: ekstrak dari teks keterangan."""
     m = re.search(r"(\d+)\s+hari\s+lagi", keterangan, re.IGNORECASE)
     if m:
         return date.today() + timedelta(days=int(m.group(1)))
@@ -197,7 +232,9 @@ def add_to_calendar(notif: dict):
     url_web      = notif.get("urlWeb", "")
     full_url     = f"{BASE_URL}{url_web}" if url_web else BASE_URL
     uid          = f"{notif_id}@ethol.pens.ac.id"
-    deadline     = extract_deadline_date(keterangan)
+    # Coba ambil deadline dari halaman detail dulu, fallback ke parsing teks
+    deadline = fetch_deadline_from_web(url_web) or extract_deadline_date(keterangan)
+    print(f"  📅 Deadline terdeteksi: {deadline}")
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
