@@ -160,28 +160,24 @@ BULAN_ID = {
 
 def fetch_deadline_from_api(url_web: str) -> tuple[date | None, str]:
     """
-    Fetch deadline dari API detail tugas.
-    url_web contoh: /notifikasi/tugas/defbdbf7-337b-4e16-a288-cb62873f3129-28501
-    API endpoint  : /api/notifikasi/tugas/<id>
-    Return        : (date, deadline_indonesia string)
+    Fetch deadline dari: BASE_URL + url_web
+    Contoh: https://ethol.pens.ac.id/mahasiswa/notifikasi/tugas/b9c180ab-...-28501
+    Response JSON berisi field deadline & deadline_indonesia
     """
     if not url_web:
         return None, ""
     try:
-        # Ambil ID dari URL: bagian terakhir setelah /tugas/
-        tugas_id = url_web.rstrip("/").split("/")[-1]
-        api_url  = f"{BASE_URL}/api/notifikasi/tugas/{tugas_id}"
-        r = requests.get(api_url, headers=HEADERS, timeout=15)
+        full_url = f"{BASE_URL}{url_web}"
+        r = requests.get(full_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         data = r.json()
 
-        # Response bisa list atau dict
         item = data[0] if isinstance(data, list) else data
-        deadline_str     = item.get("deadline", "")           # "2026-04-20 16:20:00"
-        deadline_indo    = item.get("deadline_indonesia", "")  # "Senin, 20 April 2026 - 16:20"
+        deadline_str  = item.get("deadline", "")          # "2026-04-29 23:59:00"
+        deadline_indo = item.get("deadline_indonesia", "") # "Rabu, 29 April 2026 - 23:59"
 
         if deadline_str:
-            d = datetime.strptime(deadline_str, "%Y-%m-%d %H:%M:%S").date()
+            d = datetime.strptime(deadline_str[:19], "%Y-%m-%d %H:%M:%S").date()
             return d, deadline_indo
     except Exception as e:
         print(f"  ⚠️  Gagal fetch deadline dari API: {e}")
@@ -235,7 +231,7 @@ def add_to_calendar(notif: dict):
     url_web      = notif.get("urlWeb", "")
     full_url     = f"{BASE_URL}{url_web}" if url_web else BASE_URL
     uid          = f"{notif_id}@ethol.pens.ac.id"
-    # Ambil deadline akurat dari API detail tugas
+    # Ambil deadline akurat dari API pakai urlWeb
     deadline, deadline_indo = fetch_deadline_from_api(url_web)
     if not deadline:
         deadline = extract_deadline_date(keterangan)
