@@ -35,20 +35,14 @@ INTERVAL      = 60  # detik
 # =======================================================
 
 HEADERS = {
-    "authority":          "ethol.pens.ac.id",
     "accept":             "application/json, text/plain, */*",
-    "accept-encoding":    "gzip, deflate, br, zstd",
-    "accept-language":    "en-GB,en;q=0.9",
+    "accept-encoding":    "gzip, deflate",  # Kompres response, hemat bandwidth
     "cookie":             COOKIE,
+    "token":              TOKEN,
     "referer":            "https://ethol.pens.ac.id/mahasiswa/beranda",
-    "sec-ch-ua":          '"Chromium";v="146", "Not.A.Brand";v="24", "Brave";v="146"',
-    "sec-ch-ua-mobile":   "?1",
-    "sec-ch-ua-platform": '"iOS"',
     "sec-fetch-dest":     "empty",
     "sec-fetch-mode":     "cors",
     "sec-fetch-site":     "same-origin",
-    "sec-gpc":            "1",
-    "token":              TOKEN,
     "user-agent":         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
 }
 
