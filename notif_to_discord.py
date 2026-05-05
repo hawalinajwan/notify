@@ -3,10 +3,24 @@ import json
 import hashlib
 import os
 import re
+import time
 from datetime import datetime, date, timedelta
+from pathlib import Path
+
+# ===================== LOAD .env =====================
+def load_env():
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        with open(env_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+
+load_env()
 
 # ===================== KONFIGURASI =====================
-# Semua nilai sensitif diambil dari GitHub Secrets
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 COOKIE              = os.environ.get("ETHOL_COOKIE", "")
 TOKEN               = os.environ.get("ETHOL_TOKEN", "")
@@ -15,8 +29,9 @@ GIST_TOKEN          = os.environ.get("GIST_TOKEN", "")
 
 GIST_FILENAME = "deadline.ics"
 API_URL       = "https://ethol.pens.ac.id/api/notifikasi/mahasiswa?filterNotif=SEMUA"
-SENT_IDS_FILE = "sent_ids.json"
+SENT_IDS_FILE = Path(__file__).parent / "sent_ids.json"
 BASE_URL      = "https://ethol.pens.ac.id"
+INTERVAL      = 60  # detik
 # =======================================================
 
 HEADERS = {
@@ -46,13 +61,14 @@ NOTIF_CONFIG = {
     "PRESENSI":        {"emoji": "🗓️", "label": "Absensi",         "color": 0xE67E22},
     "JADWAL":          {"emoji": "📅", "label": "Jadwal",          "color": 0x1ABC9C},
 }
-DEFAULT_CONFIG = {"emoji": "🔔", "label": "Notifikasi", "color": 0x5865F2}
+DEFAULT_CONFIG  = {"emoji": "🔔", "label": "Notifikasi", "color": 0x5865F2}
+ABSENSI_CODES   = {"ABSENSI", "PRESENSI"}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def load_sent_ids() -> set:
-    if os.path.exists(SENT_IDS_FILE):
+    if SENT_IDS_FILE.exists():
         with open(SENT_IDS_FILE, "r") as f:
             return set(json.load(f))
     return set()
@@ -75,7 +91,7 @@ def get_notifikasi():
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        print(f"[ERROR] Gagal ambil notifikasi: {e}")
+        print(f"  [ERROR] Gagal ambil notifikasi: {e}")
         return None
 
 
@@ -106,9 +122,8 @@ def send_to_discord(notif: dict):
         "timestamp": datetime.utcnow().isoformat(),
     }
 
-    # @everyone hanya untuk notif ABSENSI
     payload = {"username": "PENS Notifikasi", "embeds": [embed]}
-    if kode in ("ABSENSI", "PRESENSI"):
+    if kode in ABSENSI_CODES:
         payload["content"] = "@everyone 🚨 Segera buka absen!"
 
     try:
@@ -151,19 +166,8 @@ def push_gist_ics(content: str):
         print(f"  ❌ Gagal update Gist: {e}")
 
 
-# Mapping nama bulan Indonesia
-BULAN_ID = {
-    "januari": 1, "februari": 2, "maret": 3, "april": 4,
-    "mei": 5, "juni": 6, "juli": 7, "agustus": 8,
-    "september": 9, "oktober": 10, "november": 11, "desember": 12
-}
-
-def fetch_deadline_from_api(url_web: str) -> tuple[date | None, str]:
-    """
-    Fetch deadline dari: BASE_URL + url_web
-    Contoh: https://ethol.pens.ac.id/mahasiswa/notifikasi/tugas/b9c180ab-...-28501
-    Response JSON berisi field deadline & deadline_indonesia
-    """
+def fetch_deadline_from_api(url_web: str) -> tuple:
+    """Fetch deadline dari urlWeb: BASE_URL + url_web"""
     if not url_web:
         return None, ""
     try:
@@ -171,11 +175,9 @@ def fetch_deadline_from_api(url_web: str) -> tuple[date | None, str]:
         r = requests.get(full_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         data = r.json()
-
         item = data[0] if isinstance(data, list) else data
-        deadline_str  = item.get("deadline", "")          # "2026-04-29 23:59:00"
-        deadline_indo = item.get("deadline_indonesia", "") # "Rabu, 29 April 2026 - 23:59"
-
+        deadline_str  = item.get("deadline", "")
+        deadline_indo = item.get("deadline_indonesia", "")
         if deadline_str:
             d = datetime.strptime(deadline_str[:19], "%Y-%m-%d %H:%M:%S").date()
             return d, deadline_indo
@@ -183,17 +185,11 @@ def fetch_deadline_from_api(url_web: str) -> tuple[date | None, str]:
         print(f"  ⚠️  Gagal fetch deadline dari API: {e}")
     return None, ""
 
+
 def extract_deadline_date(keterangan: str) -> date:
-    """Fallback: ekstrak dari teks keterangan."""
     m = re.search(r"(\d+)\s+hari\s+lagi", keterangan, re.IGNORECASE)
     if m:
         return date.today() + timedelta(days=int(m.group(1)))
-    m = re.search(r"(\d{4})-(\d{2})-(\d{2})", keterangan)
-    if m:
-        return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    m = re.search(r"(\d{2})-(\d{2})-(\d{4})", keterangan)
-    if m:
-        return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
     return date.today() + timedelta(days=1)
 
 
@@ -217,30 +213,28 @@ def build_ics(events: dict) -> str:
         "X-WR-CALNAME:Deadline Tugas PENS",
     ]
     for block in events.values():
-        # Pastikan setiap block pakai CRLF
         block_lines = block.replace("\r\n", "\n").replace("\r", "\n").split("\n")
         lines.extend(block_lines)
     lines.append("END:VCALENDAR")
-    # Gabung dengan CRLF sesuai standar iCalendar (RFC 5545)
     return "\r\n".join(lines) + "\r\n"
 
 
 def add_to_calendar(notif: dict):
-    keterangan   = notif.get("keterangan", "")
-    notif_id     = make_id(notif)
-    url_web      = notif.get("urlWeb", "")
-    full_url     = f"{BASE_URL}{url_web}" if url_web else BASE_URL
-    uid          = f"{notif_id}@ethol.pens.ac.id"
-    # Ambil deadline akurat dari API pakai urlWeb
+    keterangan = notif.get("keterangan", "")
+    notif_id   = make_id(notif)
+    url_web    = notif.get("urlWeb", "")
+    full_url   = f"{BASE_URL}{url_web}" if url_web else BASE_URL
+    uid        = f"{notif_id}@ethol.pens.ac.id"
+
     deadline, deadline_indo = fetch_deadline_from_api(url_web)
     if not deadline:
-        deadline = extract_deadline_date(keterangan)
+        deadline      = extract_deadline_date(keterangan)
         deadline_indo = deadline.strftime("%A, %d %B %Y")
     print(f"  📅 Deadline terdeteksi: {deadline} ({deadline_indo})")
+
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    # Hapus karakter yang bisa merusak format .ics
     summary      = re.sub(r"[\r\n]", " ", keterangan)
 
     current_ics = fetch_gist_ics()
@@ -250,9 +244,6 @@ def add_to_calendar(notif: dict):
         print(f"  ℹ️  Event sudah ada di kalender, skip.")
         return
 
-    # Simpan sebagai list of lines, build_ics yang urus CRLF-nya
-    # Buat summary singkat: nama tugas saja (bukan keterangan panjang)
-    deadline_label = f"DL: {deadline_indo}" if deadline_indo else f"DL: {date_str}"
     event_lines = [
         "BEGIN:VEVENT",
         f"UID:{uid}",
@@ -260,7 +251,7 @@ def add_to_calendar(notif: dict):
         f"DTSTART;VALUE=DATE:{date_str}",
         f"DTEND;VALUE=DATE:{date_end_str}",
         f"SUMMARY:{summary}",
-        f"DESCRIPTION:{deadline_label}\n{summary}",
+        f"DESCRIPTION:DL: {deadline_indo}\\n{summary}",
         f"URL:{full_url}",
         "STATUS:CONFIRMED",
         "END:VEVENT",
@@ -270,40 +261,54 @@ def add_to_calendar(notif: dict):
     print(f"  📅 Kalender: deadline {deadline} — {keterangan[:60]}")
 
 
-# ─── Main ─────────────────────────────────────────────────────────────────────
+# ─── Main Loop ────────────────────────────────────────────────────────────────
 
-def main():
+def check_once(sent_ids: set) -> set:
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Cek notifikasi...")
-
-    sent_ids = load_sent_ids()
-    data     = get_notifikasi()
+    data = get_notifikasi()
 
     if not data:
-        print("Tidak ada data dari API.")
-        return
+        print("  Tidak ada data dari API.")
+        return sent_ids
 
     notifs = (
-        data
-        if isinstance(data, list)
+        data if isinstance(data, list)
         else data.get("data") or data.get("notifikasi") or data.get("result") or []
     )
-
-    print(f"Total notifikasi : {len(notifs)}")
-    print(f"Sudah dikirim    : {len(sent_ids)}")
 
     new_notifs        = [n for n in notifs if make_id(n) not in sent_ids]
     new_notifs_sorted = list(reversed(new_notifs))
 
-    new_count = 0
+    if not new_notifs_sorted:
+        print("  Tidak ada notifikasi baru.")
+        return sent_ids
+
+    print(f"  {len(new_notifs_sorted)} notifikasi baru!")
     for notif in new_notifs_sorted:
         send_to_discord(notif)
         if notif.get("kodeNotifikasi") == "TUGAS-BARU":
             add_to_calendar(notif)
         sent_ids.add(make_id(notif))
-        new_count += 1
 
     save_sent_ids(sent_ids)
-    print(f"\nSelesai — {new_count} notifikasi baru dikirim.")
+    return sent_ids
+
+
+def main():
+    print("=" * 50)
+    print("  PENS Notifikasi -> Discord & Kalender")
+    print(f"  Interval: setiap {INTERVAL} detik")
+    print("=" * 50)
+
+    sent_ids = load_sent_ids()
+    print(f"  {len(sent_ids)} notifikasi sebelumnya di-load.\n")
+
+    while True:
+        try:
+            sent_ids = check_once(sent_ids)
+        except Exception as e:
+            print(f"  [ERROR] {e}")
+        time.sleep(INTERVAL)
 
 
 if __name__ == "__main__":
