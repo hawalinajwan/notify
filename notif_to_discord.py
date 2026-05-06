@@ -124,8 +124,8 @@ def send_to_discord(notif: dict):
     if full_url:
         description += f"\n\n[🔗 Lihat Detail di ETHOL]({full_url})"
 
-    # Untuk TUGAS-BARU, ambil deadline dari API dan tampilkan di field Tanggal
-    if kode == "TUGAS-BARU":
+    # Untuk TUGAS-BARU dan PENGINGAT-TUGAS, tampilkan deadline
+    if kode in ("TUGAS-BARU", "PENGINGAT-TUGAS"):
         data_terkait = notif.get("dataTerkait", "")
         _, deadline_indo = fetch_deadline_from_api(data_terkait)
         tanggal_label = "⏰ Deadline"
@@ -265,12 +265,15 @@ def add_to_calendar(notif: dict):
     full_url   = f"{BASE_URL}/mahasiswa{url_web}" if url_web else BASE_URL
     uid        = f"{notif_id}@ethol.pens.ac.id"
 
-    # Ambil nomor tugas dari dataTerkait, bukan urlWeb
+    # Ambil nomor tugas dari dataTerkait
     nomor_tugas = notif.get("dataTerkait", "")
     deadline, deadline_indo = fetch_deadline_from_api(nomor_tugas)
+
+    # Jika fetch gagal / response kosong, jangan add ke kalender
     if not deadline:
-        deadline      = extract_deadline_date(keterangan)
-        deadline_indo = deadline.strftime("%A, %d %B %Y")
+        print("  ℹ️  Deadline tidak ditemukan dari API, skip kalender.")
+        return
+
     print(f"  📅 Deadline terdeteksi: {deadline} ({deadline_indo})")
 
     date_str     = deadline.strftime("%Y%m%d")
