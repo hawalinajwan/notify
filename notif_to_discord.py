@@ -124,13 +124,23 @@ def send_to_discord(notif: dict):
     if full_url:
         description += f"\n\n[🔗 Lihat Detail di ETHOL]({full_url})"
 
+    # Untuk TUGAS-BARU, ambil deadline dari API dan tampilkan di field Tanggal
+    if kode == "TUGAS-BARU":
+        data_terkait = notif.get("dataTerkait", "")
+        _, deadline_indo = fetch_deadline_from_api(data_terkait)
+        tanggal_label = "⏰ Deadline"
+        tanggal_value = deadline_indo if deadline_indo else tgl_indo
+    else:
+        tanggal_label = "📅 Tanggal"
+        tanggal_value = tgl_indo
+
     embed = {
         "title":       f"{config['emoji']}  {config['label']}",
         "description": description,
         "color":       config["color"],
         "fields": [
-            {"name": "🕐 Waktu",   "value": waktu or "-",    "inline": True},
-            {"name": "📅 Tanggal", "value": tgl_indo or "-", "inline": True},
+            {"name": "🕐 Waktu",       "value": waktu or "-",        "inline": True},
+            {"name": tanggal_label,    "value": tanggal_value or "-", "inline": True},
         ],
         "footer":    {"text": "PENS • ethol.pens.ac.id"},
         "timestamp": datetime.utcnow().isoformat(),
@@ -189,31 +199,28 @@ def push_gist_ics(content: str):
         print(f"  ❌ Gagal update Gist: {e}")
 
 
-def fetch_deadline_from_api(data_terkait: str) -> tuple:
-    """Fetch deadline dari API /api/tugas/by-nomor menggunakan dataTerkait"""
-    if not data_terkait:
+def fetch_deadline_from_api(nomor_tugas: str) -> tuple:
+    """
+    Fetch deadline dari: /api/tugas/by-nomor?nomorTugas=<nomor>
+    nomor_tugas diambil dari field dataTerkait di notifikasi.
+    """
+    if not nomor_tugas:
         return None, ""
     try:
-        full_url = f"{BASE_URL}/api/tugas/by-nomor?nomorTugas={data_terkait}"
-        r = requests.get(full_url, headers=HEADERS, timeout=15)
+        api_url = f"{BASE_URL}/api/tugas/by-nomor?nomorTugas={nomor_tugas}"
+        r = requests.get(api_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
-        
         data = r.json()
         item = data[0] if isinstance(data, list) and data else data
-        
         if not isinstance(item, dict):
             return None, ""
-            
         deadline_str  = item.get("deadline", "")
         deadline_indo = item.get("deadline_indonesia", "")
-        
         if deadline_str:
             d = datetime.strptime(deadline_str[:19], "%Y-%m-%d %H:%M:%S").date()
             return d, deadline_indo
-            
     except Exception as e:
         print(f"  ⚠️  Gagal fetch deadline dari API: {e}")
-        
     return None, ""
 
 
@@ -255,19 +262,15 @@ def add_to_calendar(notif: dict):
     keterangan = notif.get("keterangan", "")
     notif_id   = make_id(notif)
     url_web    = notif.get("urlWeb", "")
-    full_url   = f"{BASE_URL}{url_web}" if url_web else BASE_URL
+    full_url   = f"{BASE_URL}/mahasiswa{url_web}" if url_web else BASE_URL
     uid        = f"{notif_id}@ethol.pens.ac.id"
 
-    # Ambil dataTerkait dari JSON notifikasi
-    data_terkait = notif.get("dataTerkait", "")
-
-    # Gunakan data_terkait untuk menembak API kedua
-    deadline, deadline_indo = fetch_deadline_from_api(data_terkait)
-    
+    # Ambil nomor tugas dari dataTerkait, bukan urlWeb
+    nomor_tugas = notif.get("dataTerkait", "")
+    deadline, deadline_indo = fetch_deadline_from_api(nomor_tugas)
     if not deadline:
         deadline      = extract_deadline_date(keterangan)
         deadline_indo = deadline.strftime("%A, %d %B %Y")
-        
     print(f"  📅 Deadline terdeteksi: {deadline} ({deadline_indo})")
 
     date_str     = deadline.strftime("%Y%m%d")
