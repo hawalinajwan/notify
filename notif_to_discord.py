@@ -118,7 +118,7 @@ def send_to_discord(notif: dict):
     waktu      = notif.get("waktuNotifikasi", "-")
     tgl_indo   = notif.get("createdAtIndonesia", "-")
     url_web    = notif.get("urlWeb", "")
-    full_url   = f"{BASE_URL}{url_web}" if url_web else None
+    full_url   = f"{BASE_URL}/mahasiswa{url_web}" if url_web else None
 
     description = f"> {keterangan}"
     if full_url:
