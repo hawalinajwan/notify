@@ -190,11 +190,13 @@ def push_gist_ics(content: str):
 
 
 def fetch_deadline_from_api(url_web: str) -> tuple:
-    """Fetch deadline dari urlWeb: BASE_URL + url_web"""
+    """Fetch deadline dari urlWeb: BASE_URL + /mahasiswa + url_web"""
     if not url_web:
         return None, ""
     try:
-        full_url = f"{BASE_URL}{url_web}"
+        # urlWeb dari API: /notifikasi/tugas/<id>
+        # URL yang return JSON: /mahasiswa/notifikasi/tugas/<id>
+        full_url = f"{BASE_URL}/mahasiswa{url_web}"
         r = requests.get(full_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         data = r.json()
