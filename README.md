@@ -1,4 +1,4 @@
-# 🔔 PENS Notifikasi → Discord & Kalender
+# 🔔 Web Notifikasi → Discord & Kalender
 
 Otomatis monitoring notifikasi dari **ETHOL PENS** dan kirim ke Discord + GitHub Gist (Kalender).
 
