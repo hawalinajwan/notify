@@ -189,27 +189,31 @@ def push_gist_ics(content: str):
         print(f"  ❌ Gagal update Gist: {e}")
 
 
-def fetch_deadline_from_api(url_web: str) -> tuple:
-    """Fetch deadline dari urlWeb: BASE_URL + /mahasiswa + url_web"""
-    if not url_web:
+def fetch_deadline_from_api(data_terkait: str) -> tuple:
+    """Fetch deadline dari API /api/tugas/by-nomor menggunakan dataTerkait"""
+    if not data_terkait:
         return None, ""
     try:
-        # urlWeb dari API: /notifikasi/tugas/<id>
-        # URL yang return JSON: /mahasiswa/notifikasi/tugas/<id>
-        full_url = f"{BASE_URL}/mahasiswa{url_web}"
+        full_url = f"{BASE_URL}/api/tugas/by-nomor?nomorTugas={data_terkait}"
         r = requests.get(full_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
+        
         data = r.json()
         item = data[0] if isinstance(data, list) and data else data
+        
         if not isinstance(item, dict):
             return None, ""
+            
         deadline_str  = item.get("deadline", "")
         deadline_indo = item.get("deadline_indonesia", "")
+        
         if deadline_str:
             d = datetime.strptime(deadline_str[:19], "%Y-%m-%d %H:%M:%S").date()
             return d, deadline_indo
+            
     except Exception as e:
         print(f"  ⚠️  Gagal fetch deadline dari API: {e}")
+        
     return None, ""
 
 
@@ -254,10 +258,16 @@ def add_to_calendar(notif: dict):
     full_url   = f"{BASE_URL}{url_web}" if url_web else BASE_URL
     uid        = f"{notif_id}@ethol.pens.ac.id"
 
-    deadline, deadline_indo = fetch_deadline_from_api(url_web)
+    # Ambil dataTerkait dari JSON notifikasi
+    data_terkait = notif.get("dataTerkait", "")
+
+    # Gunakan data_terkait untuk menembak API kedua
+    deadline, deadline_indo = fetch_deadline_from_api(data_terkait)
+    
     if not deadline:
         deadline      = extract_deadline_date(keterangan)
         deadline_indo = deadline.strftime("%A, %d %B %Y")
+        
     print(f"  📅 Deadline terdeteksi: {deadline} ({deadline_indo})")
 
     date_str     = deadline.strftime("%Y%m%d")
