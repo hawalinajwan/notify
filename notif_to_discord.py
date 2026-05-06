@@ -34,15 +34,22 @@ BASE_URL      = "https://ethol.pens.ac.id"
 INTERVAL      = 60  # detik
 # =======================================================
 
+# Pakai headers lengkap persis seperti browser agar tidak di-reject server
 HEADERS = {
+    "authority":          "ethol.pens.ac.id",
     "accept":             "application/json, text/plain, */*",
-    "accept-encoding":    "gzip, deflate",  # Kompres response, hemat bandwidth
+    "accept-encoding":    "gzip, deflate, br, zstd",
+    "accept-language":    "en-GB,en;q=0.9",
     "cookie":             COOKIE,
-    "token":              TOKEN,
     "referer":            "https://ethol.pens.ac.id/mahasiswa/beranda",
+    "sec-ch-ua":          '"Chromium";v="146", "Not.A.Brand";v="24", "Brave";v="146"',
+    "sec-ch-ua-mobile":   "?1",
+    "sec-ch-ua-platform": '"iOS"',
     "sec-fetch-dest":     "empty",
     "sec-fetch-mode":     "cors",
     "sec-fetch-site":     "same-origin",
+    "sec-gpc":            "1",
+    "token":              TOKEN,
     "user-agent":         "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
 }
 
@@ -55,8 +62,8 @@ NOTIF_CONFIG = {
     "PRESENSI":        {"emoji": "🗓️", "label": "Absensi",         "color": 0xE67E22},
     "JADWAL":          {"emoji": "📅", "label": "Jadwal",          "color": 0x1ABC9C},
 }
-DEFAULT_CONFIG  = {"emoji": "🔔", "label": "Notifikasi", "color": 0x5865F2}
-ABSENSI_CODES   = {"ABSENSI", "PRESENSI"}
+DEFAULT_CONFIG = {"emoji": "🔔", "label": "Notifikasi", "color": 0x5865F2}
+ABSENSI_CODES  = {"ABSENSI", "PRESENSI"}
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,7 +82,7 @@ def save_sent_ids(ids: set):
 
 def make_id(notif: dict) -> str:
     if notif.get("idNotifikasi"):
-        return notif["idNotifikasi"]
+        return str(notif["idNotifikasi"])
     return hashlib.md5(json.dumps(notif, sort_keys=True).encode()).hexdigest()
 
 
@@ -83,7 +90,20 @@ def get_notifikasi():
     try:
         resp = requests.get(API_URL, headers=HEADERS, timeout=15)
         resp.raise_for_status()
-        return resp.json()
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        for key in ("data", "notifikasi", "result", "results"):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+        print(f"  [WARN] Struktur response tidak dikenal: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+        return []
+    except requests.exceptions.HTTPError as e:
+        code = e.response.status_code
+        print(f"  [ERROR] HTTP {code} saat fetch notifikasi.")
+        if code in (401, 403):
+            print("  [WARN] Token/cookie expired! Update ETHOL_COOKIE dan ETHOL_TOKEN di .env")
+        return None
     except Exception as e:
         print(f"  [ERROR] Gagal ambil notifikasi: {e}")
         return None
@@ -109,8 +129,8 @@ def send_to_discord(notif: dict):
         "description": description,
         "color":       config["color"],
         "fields": [
-            {"name": "🕐 Waktu",   "value": waktu,    "inline": True},
-            {"name": "📅 Tanggal", "value": tgl_indo, "inline": True},
+            {"name": "🕐 Waktu",   "value": waktu or "-",    "inline": True},
+            {"name": "📅 Tanggal", "value": tgl_indo or "-", "inline": True},
         ],
         "footer":    {"text": "PENS • ethol.pens.ac.id"},
         "timestamp": datetime.utcnow().isoformat(),
@@ -125,7 +145,7 @@ def send_to_discord(notif: dict):
         if r.status_code in (200, 204):
             print(f"  ✅ Discord: [{kode}] {keterangan[:70]}")
         else:
-            print(f"  ⚠️  Discord {r.status_code}: {r.text}")
+            print(f"  ⚠️  Discord {r.status_code}: {r.text[:100]}")
     except Exception as e:
         print(f"  ❌ Gagal kirim Discord: {e}")
 
@@ -136,11 +156,17 @@ def fetch_gist_ics() -> str:
     try:
         r = requests.get(
             f"https://api.github.com/gists/{GIST_ID}",
-            headers={"Authorization": f"token {GIST_TOKEN}"},
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept":        "application/vnd.github+json",
+            },
             timeout=10,
         )
         r.raise_for_status()
-        return r.json()["files"][GIST_FILENAME]["content"]
+        files = r.json().get("files", {})
+        if GIST_FILENAME not in files:
+            return None
+        return files[GIST_FILENAME]["content"]
     except Exception as e:
         print(f"  ⚠️  Gagal fetch Gist: {e}")
         return None
@@ -150,7 +176,10 @@ def push_gist_ics(content: str):
     try:
         r = requests.patch(
             f"https://api.github.com/gists/{GIST_ID}",
-            headers={"Authorization": f"token {GIST_TOKEN}"},
+            headers={
+                "Authorization": f"token {GIST_TOKEN}",
+                "Accept":        "application/vnd.github+json",
+            },
             json={"files": {GIST_FILENAME: {"content": content}}},
             timeout=10,
         )
@@ -169,7 +198,9 @@ def fetch_deadline_from_api(url_web: str) -> tuple:
         r = requests.get(full_url, headers=HEADERS, timeout=15)
         r.raise_for_status()
         data = r.json()
-        item = data[0] if isinstance(data, list) else data
+        item = data[0] if isinstance(data, list) and data else data
+        if not isinstance(item, dict):
+            return None, ""
         deadline_str  = item.get("deadline", "")
         deadline_indo = item.get("deadline_indonesia", "")
         if deadline_str:
@@ -181,6 +212,7 @@ def fetch_deadline_from_api(url_web: str) -> tuple:
 
 
 def extract_deadline_date(keterangan: str) -> date:
+    """Fallback: tebak deadline dari teks keterangan."""
     m = re.search(r"(\d+)\s+hari\s+lagi", keterangan, re.IGNORECASE)
     if m:
         return date.today() + timedelta(days=int(m.group(1)))
@@ -229,13 +261,13 @@ def add_to_calendar(notif: dict):
     date_str     = deadline.strftime("%Y%m%d")
     date_end_str = (deadline + timedelta(days=1)).strftime("%Y%m%d")
     now_str      = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    summary      = re.sub(r"[\r\n]", " ", keterangan)
+    summary      = re.sub(r"[\r\n]+", " ", keterangan).strip()
 
     current_ics = fetch_gist_ics()
     existing    = parse_events_from_ics(current_ics) if current_ics else {}
 
     if uid in existing:
-        print(f"  ℹ️  Event sudah ada di kalender, skip.")
+        print("  ℹ️  Event sudah ada di kalender, skip.")
         return
 
     event_lines = [
@@ -259,16 +291,14 @@ def add_to_calendar(notif: dict):
 
 def check_once(sent_ids: set) -> set:
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Cek notifikasi...")
-    data = get_notifikasi()
+    notifs = get_notifikasi()
 
-    if not data:
-        print("  Tidak ada data dari API.")
+    if notifs is None:
         return sent_ids
 
-    notifs = (
-        data if isinstance(data, list)
-        else data.get("data") or data.get("notifikasi") or data.get("result") or []
-    )
+    if not notifs:
+        print("  Tidak ada data dari API.")
+        return sent_ids
 
     new_notifs        = [n for n in notifs if make_id(n) not in sent_ids]
     new_notifs_sorted = list(reversed(new_notifs))
@@ -277,7 +307,7 @@ def check_once(sent_ids: set) -> set:
         print("  Tidak ada notifikasi baru.")
         return sent_ids
 
-    print(f"  {len(new_notifs_sorted)} notifikasi baru!")
+    print(f"  🔔 {len(new_notifs_sorted)} notifikasi baru ditemukan!")
     for notif in new_notifs_sorted:
         send_to_discord(notif)
         if notif.get("kodeNotifikasi") == "TUGAS-BARU":
@@ -291,17 +321,20 @@ def check_once(sent_ids: set) -> set:
 def main():
     print("=" * 50)
     print("  PENS Notifikasi -> Discord & Kalender")
-    print(f"  Interval: setiap {INTERVAL} detik")
+    print(f"  Interval polling: setiap {INTERVAL} detik")
     print("=" * 50)
 
     sent_ids = load_sent_ids()
-    print(f"  {len(sent_ids)} notifikasi sebelumnya di-load.\n")
+    print(f"  {len(sent_ids)} ID notifikasi sebelumnya di-load.\n")
 
     while True:
         try:
             sent_ids = check_once(sent_ids)
+        except KeyboardInterrupt:
+            print("\n[INFO] Script dihentikan.")
+            break
         except Exception as e:
-            print(f"  [ERROR] {e}")
+            print(f"  [ERROR] Unexpected: {e}")
         time.sleep(INTERVAL)
 
 
