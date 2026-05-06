@@ -17,7 +17,7 @@ Otomatis monitoring notifikasi dari **ETHOL PENS** dan kirim ke Discord + GitHub
 ### 1. Clone & Install Dependencies
 
 ```bash
-cd /Users/hawalinajwan/Awa/2026/3.April/notify
+cd /Users/xxx/notify
 pip install -r requirements.txt
 ```
 
